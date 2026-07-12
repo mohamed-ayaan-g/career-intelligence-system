@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Data (raw data is large/licensed; don't commit it — see data/raw/*/SOURCE.md)
+data/raw/onet/*.xlsx
+data/raw/onet/*.txt
+data/raw/oews/*.xlsx
+data/raw/oews/*.zip
+data/processed/*.parquet
+data/processed/*.csv
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Environment
+.env
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
