@@ -4,11 +4,14 @@ numpy==1.26.4
 openpyxl==3.1.2
 
 # Skill matching
+# NOTE: not yet installed/verified on Python 3.13 — only needed if we pursue
+# the embedding-similarity stretch goal. scikit-learn/xgboost above ARE
+# confirmed working versions for Python 3.13 as of Phase 1.
 sentence-transformers==2.7.0
-scikit-learn==1.4.2
+scikit-learn==1.8.0
 
 # Modeling
-xgboost==2.0.3
+xgboost==3.3.0
 
 # Conformal prediction
 mapie==0.8.3
