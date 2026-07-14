@@ -2,7 +2,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.features.occupation_features import build_occupation_feature_table, build_training_rows
+from src.features.occupation_features import (
+    build_occupation_feature_table,
+    build_training_rows,
+    clean_training_rows,
+)
 
 
 @pytest.fixture
@@ -102,3 +106,83 @@ def test_log_wage_matches_manual_calculation(occ, skill_matrix, job_zones, wages
     training = build_training_rows(table, skill_cols=["Programming", "Mathematics"])
     row = training[(training["onetsoc_code"] == "15-1252.00") & (training["percentile"] == 50)]
     assert row["log_wage"].iloc[0] == pytest.approx(np.log(100000))
+
+
+@pytest.fixture
+def occ_with_mixed_gaps():
+    return pd.DataFrame(
+        {
+            "onetsoc_code": ["15-1252.00", "11-1011.00", "13-1082.00", "11-9199.00"],
+            "title": ["Software Dev", "Chief Exec", "No Skill Data", "No Job Zone"],
+        }
+    )
+
+
+@pytest.fixture
+def skill_matrix_missing_one_occupation():
+    # 13-1082.00 deliberately absent entirely — simulates an occupation with
+    # no skill survey data at all (the real ~94-occupation case)
+    return pd.DataFrame(
+        {"Programming": [5.0, 1.0, 2.0], "Mathematics": [4.5, 2.0, 2.5]},
+        index=pd.Index(["15-1252.00", "11-1011.00", "11-9199.00"], name="onetsoc_code"),
+    )
+
+
+@pytest.fixture
+def job_zones_missing_one_occupation():
+    # 11-9199.00 deliberately absent — simulates an occupation with skills
+    # but no job_zone (the real ~69-occupation case)
+    return pd.DataFrame(
+        {"onetsoc_code": ["15-1252.00", "11-1011.00", "13-1082.00"], "job_zone": [4, 5, 4]}
+    )
+
+
+@pytest.fixture
+def wages_all_four():
+    return pd.DataFrame(
+        {
+            "occ_code": ["15-1252", "11-1011", "13-1082", "11-9199"],
+            "a_pct10": [70000, 90000, 60000, 50000],
+            "a_pct25": [85000, 120000, 70000, 60000],
+            "a_median": [100000, 160000, 85000, 75000],
+            "a_pct75": [120000, 210000, 100000, 90000],
+            "a_pct90": [140000, 280000, 120000, 110000],
+            "tot_emp": [1000000, 300000, 200000, 400000],
+        }
+    )
+
+
+def test_clean_drops_occupations_missing_all_skills(
+    occ_with_mixed_gaps, skill_matrix_missing_one_occupation, job_zones_missing_one_occupation, wages_all_four
+):
+    table = build_occupation_feature_table(
+        occ_with_mixed_gaps, skill_matrix_missing_one_occupation, job_zones_missing_one_occupation, wages_all_four
+    )
+    training = build_training_rows(table, skill_cols=["Programming", "Mathematics"])
+    cleaned = clean_training_rows(training, skill_cols=["Programming", "Mathematics"])
+    assert "13-1082.00" not in cleaned["onetsoc_code"].values
+
+
+def test_clean_imputes_job_zone_with_median_not_drop(
+    occ_with_mixed_gaps, skill_matrix_missing_one_occupation, job_zones_missing_one_occupation, wages_all_four
+):
+    """The occupation missing ONLY job_zone (but has skill data) should be
+    KEPT, with job_zone imputed — not dropped like the missing-skills case."""
+    table = build_occupation_feature_table(
+        occ_with_mixed_gaps, skill_matrix_missing_one_occupation, job_zones_missing_one_occupation, wages_all_four
+    )
+    training = build_training_rows(table, skill_cols=["Programming", "Mathematics"])
+    cleaned = clean_training_rows(training, skill_cols=["Programming", "Mathematics"])
+    assert "11-9199.00" in cleaned["onetsoc_code"].values
+    assert cleaned[cleaned["onetsoc_code"] == "11-9199.00"]["job_zone"].notna().all()
+
+
+def test_clean_leaves_zero_nulls(
+    occ_with_mixed_gaps, skill_matrix_missing_one_occupation, job_zones_missing_one_occupation, wages_all_four
+):
+    table = build_occupation_feature_table(
+        occ_with_mixed_gaps, skill_matrix_missing_one_occupation, job_zones_missing_one_occupation, wages_all_four
+    )
+    training = build_training_rows(table, skill_cols=["Programming", "Mathematics"])
+    cleaned = clean_training_rows(training, skill_cols=["Programming", "Mathematics"])
+    assert cleaned.isna().sum().sum() == 0

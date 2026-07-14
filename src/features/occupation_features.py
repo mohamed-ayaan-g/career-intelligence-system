@@ -115,3 +115,64 @@ def build_training_rows(feature_table: pd.DataFrame, skill_cols: list) -> pd.Dat
         rows.append(sub)
 
     return pd.concat(rows, ignore_index=True)
+
+
+def clean_training_rows(training_rows: pd.DataFrame, skill_cols: list) -> pd.DataFrame:
+    """Resolve nulls in melted training rows before model training.
+
+    Confirmed against the real Phase 0/1 data (see notebooks/02_feature_table_check):
+    two DISTINCT null sources exist, and they get different treatment:
+
+    1. Occupations missing ALL skill values (no O*NET skill survey data at
+       all — the same ~122-occupation gap identified in the Phase 0 EDA,
+       confirmed to be all-or-nothing, not partial). These rows have zero
+       signal to learn from and are DROPPED from training entirely. This is
+       NOT the same as the 60 crosswalk-unmatched occupations from Phase 0 —
+       these occupations DO have a wage value, they just lack skill data.
+       They will need separate handling at inference time later (flagged as
+       "cannot estimate" rather than silently predicting from missing
+       features) — tracked as a Phase 2+ item, not solved here.
+
+    2. Occupations with skill data but missing job_zone only (~69
+       occupations, smaller and separate gap). job_zone is imputed with the
+       dataset median. This is a simple, defensible choice given job_zone is
+       a coarse 1-5 ordinal signal, but it IS a real modeling choice worth
+       stating honestly in the README's limitations section, not treating as
+       neutral.
+
+    Returns
+    -------
+    pd.DataFrame with zero remaining nulls, ready for model training.
+    Prints a summary of what was dropped/imputed and why.
+    """
+    n_before = len(training_rows)
+
+    has_all_skills = training_rows[skill_cols].notna().all(axis=1)
+    n_dropped = int((~has_all_skills).sum())
+    cleaned = training_rows[has_all_skills].copy()
+
+    n_missing_job_zone = int(cleaned["job_zone"].isna().sum())
+    median_job_zone = None
+    if n_missing_job_zone > 0:
+        median_job_zone = cleaned["job_zone"].median()
+        cleaned["job_zone"] = cleaned["job_zone"].fillna(median_job_zone)
+
+    print(
+        f"Dropped {n_dropped} rows ({n_dropped // 5} occupations) missing all "
+        f"skill values, out of {n_before} total rows."
+    )
+    if n_missing_job_zone > 0:
+        print(
+            f"Imputed job_zone with dataset median ({median_job_zone}) for "
+            f"{n_missing_job_zone} rows ({n_missing_job_zone // 5} occupations)."
+        )
+    else:
+        print("No job_zone imputation needed.")
+
+    remaining_nulls = int(cleaned.isna().sum().sum())
+    assert remaining_nulls == 0, (
+        f"{remaining_nulls} nulls remain after cleaning — an unexpected null "
+        "source exists beyond the two handled here; investigate before training."
+    )
+
+    return cleaned
