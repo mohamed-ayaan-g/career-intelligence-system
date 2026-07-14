@@ -115,6 +115,32 @@ def load_transferable_skills() -> pd.DataFrame:
     )
 
 
+def load_job_zones() -> pd.DataFrame:
+    """Load Job Zones.txt: O*NET's 1-5 scale for the level of preparation
+    (education, related experience, on-the-job training) an occupation
+    typically requires. Used as our proxy for "experience level" in the
+    wage model, since neither O*NET nor OEWS provides individual-level
+    experience data directly.
+
+    Job Zone scale (per O*NET documentation):
+      1 = Little or no preparation needed
+      2 = Some preparation needed
+      3 = Medium preparation needed
+      4 = Considerable preparation needed
+      5 = Extensive preparation needed
+
+    Returns
+    -------
+    pd.DataFrame with columns: onetsoc_code, job_zone (int, 1-5)
+    """
+    df = _read_onet_txt("Job Zones.txt")
+    return _rename_or_raise(
+        df,
+        {"O*NET-SOC Code": "onetsoc_code", "Job Zone": "job_zone"},
+        "Job Zones.txt",
+    )
+
+
 def build_skill_importance_matrix(essential_skills: pd.DataFrame) -> pd.DataFrame:
     """Pivot a single skills dataframe into an occupation x skill importance
     matrix. Kept for backward compatibility / single-file use — prefer
