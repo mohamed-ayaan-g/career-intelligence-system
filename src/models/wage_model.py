@@ -24,6 +24,13 @@ Key design choices:
   entirely. This tests whether skill profile + job_zone actually add
   predictive value beyond "what percentile is this" — a real question
   worth answering explicitly, not assuming.
+
+Phase 2 addition: occupation_train_cal_test_split() extends the original
+two-way split into three (train / calibration / test) for the conformal
+prediction layer in src/models/conformal.py. See that module's docstring
+and Step 1 of the Phase 2 plan for why calibration is carved OUT OF the
+existing train set rather than done as a fresh three-way split — this
+keeps test_df, and therefore every Phase 1 evaluate() number, unchanged.
 """
 
 from dataclasses import dataclass
@@ -75,6 +82,59 @@ def occupation_train_test_split(
     train_df = training_rows[training_rows["onetsoc_code"].isin(train_codes)].copy()
     test_df = training_rows[training_rows["onetsoc_code"].isin(test_codes)].copy()
     return train_df, test_df
+
+
+def occupation_train_cal_test_split(
+    training_rows: pd.DataFrame,
+    test_size: float = 0.2,
+    cal_size: float = 0.25,
+    random_state: int = 42,
+):
+    """Three-way split by OCCUPATION, for conformal prediction (Phase 2).
+
+    Calibration is carved OUT OF the train set that occupation_train_test_split
+    would otherwise return, rather than done as an independent three-way split
+    from scratch. Concretely: this function first reproduces the exact same
+    test_size/random_state split as occupation_train_test_split() to get
+    (trainval_codes, test_codes), THEN splits trainval_codes into train/cal
+    using cal_size. The practical consequence — verified in
+    tests/test_conformal.py — is that test_df here is IDENTICAL to what
+    occupation_train_test_split(training_rows, test_size, random_state) would
+    produce, so every Phase 1 evaluate() number (RMSE, MAE, monotonicity)
+    stays valid and comparable after the conformal layer is added on top.
+
+    Parameters
+    ----------
+    training_rows : melted training rows (one row per occupation x percentile)
+    test_size : fraction of ALL occupations held out as the final test set
+        (same semantics as occupation_train_test_split)
+    cal_size : fraction of the REMAINING (non-test) occupations held out as
+        the calibration set. E.g. with ~862 total occupations, test_size=0.2
+        holds out ~172 for test, then cal_size=0.25 of the remaining ~690
+        carves out ~172 for calibration, leaving ~518 for training.
+    random_state : shared seed. Reusing this exact value across both the
+        test-carving step and the train/cal-carving step is what makes the
+        resulting test_df reproducible and identical to the two-way split's
+        test_df given the same test_size/random_state.
+
+    Returns
+    -------
+    (train_df, cal_df, test_df) — pairwise disjoint by onetsoc_code, and
+    their union of onetsoc_codes equals the full set in training_rows.
+    """
+    unique_codes = training_rows["onetsoc_code"].unique()
+    trainval_codes, test_codes = train_test_split(
+        unique_codes, test_size=test_size, random_state=random_state
+    )
+    train_codes, cal_codes = train_test_split(
+        trainval_codes, test_size=cal_size, random_state=random_state
+    )
+
+    train_df = training_rows[training_rows["onetsoc_code"].isin(train_codes)].copy()
+    cal_df = training_rows[training_rows["onetsoc_code"].isin(cal_codes)].copy()
+    test_df = training_rows[training_rows["onetsoc_code"].isin(test_codes)].copy()
+
+    return train_df, cal_df, test_df
 
 
 def train_baseline_model(train_df: pd.DataFrame, feature_cols: list) -> xgb.XGBRegressor:

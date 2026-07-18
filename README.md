@@ -26,42 +26,131 @@ no API keys.
 
 ## Method
 
-1. **Skill → Occupation Matching** — match user-input skills against O\*NET
-   skill-importance profiles.
+1. **Skill → Occupation Matching** — cosine similarity between a user's
+   self-reported skill profile and O*NET's combined Essential + Transferable
+   skill-importance matrix (35 elements across 894 occupations with skill
+   survey data).
 2. **Wage Range Output** — pull BLS OEWS percentiles for matched occupation(s).
-3. **Model-Based Refinement** — gradient-boosted regression predicts finer
-   position within the percentile band.
-4. **Conformal Prediction Layer** — wraps predictions in a calibrated interval;
-   coverage is validated and reported, including by subgroup.
-5. **Explainability (SHAP)** — shows which input skills drove each prediction.
+3. **Model-Based Refinement** — a monotonic-constrained gradient-boosted
+   regressor (XGBoost) trained on melted (occupation × percentile) rows
+   predicts finer-grained position within the percentile band than a raw
+   lookup allows, and extends wage estimates to occupations with no direct
+   BLS match.
+4. **Conformal Prediction Layer** — wraps point predictions in a
+   split-conformal interval calibrated on held-out data; coverage is
+   validated both marginally and conditionally by subgroup (Job Zone, SOC
+   major group, percentile level).
+5. **Explainability (SHAP)** — *(Phase 3, in progress)* will show which input
+   skills/features drove each prediction.
+
+## Validated Results
+
+**Crosswalk coverage (Phase 0):** 94.1% of O*NET occupations (956/1,016) find
+a direct BLS OEWS wage match via the SOC crosswalk.
+
+**Skill-matching sanity check (Phase 0):** cosine similarity over the combined
+35-element skill space surfaces plausible, distinct occupation clusters for
+both a quantitative test profile (Biostatisticians, Statisticians, Computer
+Programmers) and a people-management test profile (Social and Community
+Service Managers, IT Project Managers, First-Line Supervisors) — see
+`notebooks/01_eda_onet_oews.ipynb`.
+
+**Baseline wage model (Phase 1):** trained on 4,310 melted training rows
+(862 occupations × 5 percentiles, after dropping 94 occupations with no
+skill-survey data), split by occupation to prevent leakage.
+
+| Metric | Model | Naive (percentile-only) |
+|---|---|---|
+| RMSE (log-wage) | 0.269 | 0.456 |
+| MAE (dollars) | $19,586 | $31,943 |
+| Improvement | **38.7%** | — |
+
+Monotonicity (predicted wage never decreases 10th → 90th percentile): **0
+violations across 173 held-out test occupations.**
+
+**Conformal prediction layer (Phase 2):** split-conformal calibration on a
+held-out calibration set (173 occupations, disjoint from train and test),
+target 90% coverage.
+
+- **Marginal coverage: 90.3%** (target 90%), mean interval width $69,017.
+- **By Job Zone:** 94.7% (Zone 2) to 85.0% (Zone 4) — notably, Job Zone 2,
+  the population closest to this project's early-career focus, is the
+  *best*-covered group.
+- **By percentile level:** a fully-powered, monotonic decline from 92.5%
+  (10th percentile) to 86.7% (90th percentile) — see Limitations.
+- Group-conditional (Mondrian) calibration was implemented and tested, but
+  not applied by default — no subgroup crossed the 85% undercoverage
+  threshold used as its trigger.
+
+**Test coverage:** 38 tests passing across crosswalk logic, skill-matching
+math, occupation feature construction, the baseline model, and conformal
+calibration.
 
 ## Status
 
-🚧 In development (Phase 0 — data acquisition and repo setup). See `notebooks/`
-for exploratory work in progress.
+✅ Phase 0 — Setup, data acquisition, EDA — complete
+✅ Phase 1 — Skill matching + baseline wage model — complete
+✅ Phase 2 — Conformal prediction layer — complete
+🚧 Phase 3 — Explainability (SHAP) — in progress
+⬜ Phase 4 — API + tests
+⬜ Phase 5 — Frontend + deploy
+⬜ Phase 6 — Real-user testing
+⬜ Phase 7 — Polish + docs
+
+See `notebooks/` for the full exploratory record — each phase's notebook
+documents its own validation before the logic moved into `src/`.
 
 ## Repo Structure
 
 ```
 src/
-├── data/      # O*NET + BLS ingestion and cleaning
-├── features/  # skill-matching logic
-├── models/    # training, conformal wrapper, SHAP integration
-├── api/       # FastAPI endpoints
-└── app/       # frontend dashboard
-tests/         # pytest coverage
-notebooks/     # exploration only — never the final deliverable
+├── data/       # O*NET + BLS ingestion and cleaning
+├── features/   # skill-matching logic
+├── models/     # training (wage_model.py), conformal wrapper (conformal.py),
+│               # SHAP integration (Phase 3)
+├── api/        # FastAPI endpoints (Phase 4)
+└── app/        # frontend dashboard (Phase 5)
+tests/          # pytest coverage
+notebooks/      # exploration and real-data validation — never the final
+                # deliverable, but the record of how each design decision
+                # was checked before being trusted
+docs/           # setup and reference docs
 ```
 
 ## How to Run
 
-See `docs/SETUP.md` (coming once Phase 1 lands).
+See `docs/SETUP.md` (full run instructions land once Phase 4's API is in
+place).
 
 ## Limitations
 
-To be documented honestly as the model develops — skill-matching precision,
-occupation coverage gaps, and conformal coverage caveats will be reported here,
-not hidden.
+Documented honestly as the project develops, not hidden:
+
+- **Crosswalk gap:** 5.9% of O*NET occupations (60/1,016) have no direct BLS
+  OEWS wage match — a mix of legislative, postsecondary-teacher subtypes,
+  performing-arts, and lab-technician specialties, without one single cause.
+- **Skill-survey gap:** 122 occupations (12%) have no O*NET skill-survey data
+  at all (confirmed as a genuine O*NET data-collection lag for newer/renamed
+  SOC titles, not a code bug) and are excluded from model training, though
+  wage lookups still work for them where a BLS match exists.
+- **Conformal calibration used melted (occupation × percentile) rows.** The
+  calibration set's 865 rows represent only 173 independent occupations (5
+  correlated rows each). The marginal coverage guarantee still holds, but the
+  finite-sample correction's effective sample size is smaller than its row
+  count suggests.
+- **Job Zone 4 sits exactly at the Mondrian correction threshold** (85.0%
+  coverage against an 85% trigger) — not corrected, since it didn't formally
+  cross the bar, but not a clean pass either.
+- **Coverage declines at higher wage percentiles** (92.5% → 86.7% from 10th
+  to 90th) — a real, well-powered pattern not addressed by the current
+  Job-Zone-only Mondrian check. Documented rather than corrected for now.
+- **SOC-major-group fairness claims are inconclusive at this test-set size.**
+  Only 2 of 22 SOC major groups have enough held-out occupations (n≥15) to
+  trust their coverage numbers.
+- **Skill-matching precision** is a cosine-similarity heuristic over 35
+  O*NET elements, not a learned or validated ranking — plausible on manual
+  spot-checks, not yet tested against real user judgments (planned for
+  Phase 6's user testing).
 
 ## License
 
