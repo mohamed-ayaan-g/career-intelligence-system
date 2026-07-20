@@ -1,31 +1,27 @@
 # Data handling
+# NOTE: numpy bumped from 1.26.4 -- shap==0.52.0 (see Explainability section
+# below) hard-requires numpy>=2, which directly conflicted with the old pin.
+# pandas==2.2.2 (numpy>=1.26.0), scikit-learn==1.8.0 (numpy>=1.24.1), and
+# xgboost==3.3.0 (unconstrained) all declare no upper bound, so this is a
+# clean bump, not a workaround. Verified via a from-scratch install of the
+# full pinned set (no drift) + full 50/50 test suite passing on numpy 2.4.6.
 pandas==2.2.2
-numpy==1.26.4
+numpy==2.4.6
 openpyxl==3.1.2
 
 # Skill matching
-# NOTE: not yet installed/verified on Python 3.13 — only needed if we pursue
-# the embedding-similarity stretch goal. scikit-learn/xgboost above ARE
-# confirmed working versions for Python 3.13 as of Phase 1.
-sentence-transformers==2.7.0
 scikit-learn==1.8.0
 
 # Modeling
 xgboost==3.3.0
 
-# Conformal prediction
-mapie==0.8.3
-
 # Explainability
-shap==0.45.1
-
-# API
-fastapi==0.111.0
-uvicorn==0.29.0
-pydantic==2.7.1
-
-# Frontend (choose one; Streamlit assumed for MVP)
-streamlit==1.35.0
+# NOTE: shap==0.45.1 cannot load an xgboost>=3.x model — it fails parsing
+# XGBoost's newer base_score serialization format ('[1.1152925E1]' instead
+# of a plain float string). Confirmed against our actual trained model in
+# Phase 3; 0.52.0 loads and explains it cleanly with additivity holding to
+# ~1e-5 in log-wage space. See notebooks/05_shap_explainability.ipynb.
+shap==0.52.0
 
 # Testing
 pytest==8.2.0
@@ -33,3 +29,28 @@ pytest-cov==5.0.0
 
 # Dev
 python-dotenv==1.0.1
+
+# -----------------------------------------------------------------------------
+# REMOVED 2026-07-20: forward-pins for phases that haven't started yet.
+#
+# None of the packages below are imported anywhere in src/ or tests/ (checked
+# via grep across the whole codebase). Keeping them pinned meant every
+# `pip install -r requirements.txt` had to resolve Python 3.13/macOS-arm64
+# compatibility for code that doesn't exist yet -- this is what caused three
+# straight rounds of install failures unrelated to Phase 3's actual work:
+# numpy<->shap, numpy<->streamlit, and finally pydantic-core's Rust build
+# (PyO3 0.21.1) refusing to compile against Python 3.13 at all, with no
+# prebuilt wheel to fall back on. sentence-transformers/mapie were already
+# flagged as unused dead weight after Phase 2; this extends that same
+# decision to the Phase 4/5 pins that just failed today.
+#
+# Each will be re-added with a FRESH, verified pin at the start of the phase
+# that actually needs it, rather than carried forward speculatively:
+#
+#   sentence-transformers==2.7.0   (stretch goal: embedding-based skill matching)
+#   mapie==0.8.3                    (Phase 2 hand-rolled conformal instead -- never used)
+#   fastapi==0.111.0                (Phase 4: API layer)
+#   uvicorn==0.29.0                 (Phase 4: API layer)
+#   pydantic==2.7.1                 (Phase 4: API layer -- today's actual failure)
+#   streamlit==1.36.0               (Phase 5: dashboard)
+# -----------------------------------------------------------------------------
