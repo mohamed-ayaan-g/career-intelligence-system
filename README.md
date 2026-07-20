@@ -40,8 +40,12 @@ no API keys.
    split-conformal interval calibrated on held-out data; coverage is
    validated both marginally and conditionally by subgroup (Job Zone, SOC
    major group, percentile level).
-5. **Explainability (SHAP)** — *(Phase 3, in progress)* will show which input
-   skills/features drove each prediction.
+5. **Explainability (SHAP)** — SHAP attributes each prediction to individual
+   skills and to distributional "context" (percentile, job zone), reported
+   separately so a lay user isn't shown "50th percentile" as if it were a
+   skill. Dollar effects are reported multiplicatively (`exp(shap) - 1`,
+   e.g. "+12%"), since the model predicts log-wage and SHAP values are
+   additive in log-space, not dollar-space.
 
 ## Validated Results
 
@@ -82,16 +86,38 @@ target 90% coverage.
   not applied by default — no subgroup crossed the 85% undercoverage
   threshold used as its trigger.
 
-**Test coverage:** 38 tests passing across crosswalk logic, skill-matching
-math, occupation feature construction, the baseline model, and conformal
-calibration.
+**Explainability layer (Phase 3):** SHAP (`TreeExplainer`) additivity holds
+cleanly across all 865 held-out test rows — max error 1.24e-05, mean error
+4.95e-06, both far inside a 1e-3 tolerance.
+
+- **Context dominates the naive ranking:** `percentile` and `job_zone`
+  together account for **38.1% of total |SHAP| mass**, with `percentile`
+  alone outranking every individual skill. This is why context features are
+  reported separately from skill drivers rather than mixed into one ranked
+  list — a naive top-5 feature importance list would otherwise show "50th
+  percentile" as the single largest driver, which is meaningless to a lay
+  user. The skill-only ranking, once separated, is coherent: Critical
+  Thinking, Complex Problem Solving, and Judgment and Decision Making top
+  the list.
+- **Real-wage sanity check is mixed, and reported honestly rather than
+  cherry-picked:** for Light Truck Drivers, the model predicted $44,882
+  against an actual BLS median of $44,860 — a near-exact match. For Chemical
+  Technicians, it predicted $76,142 against an actual $60,390 — a ~26%
+  overprediction, driven up by Science and Critical Thinking. The
+  explanation makes this discrepancy interpretable even when the point
+  estimate itself misses, which is the actual value proposition of this
+  layer.
+
+**Test coverage:** 50 tests passing across crosswalk logic, skill-matching
+math, occupation feature construction, the baseline model, conformal
+calibration, and SHAP explainability.
 
 ## Status
 
 ✅ Phase 0 — Setup, data acquisition, EDA — complete
 ✅ Phase 1 — Skill matching + baseline wage model — complete
 ✅ Phase 2 — Conformal prediction layer — complete
-🚧 Phase 3 — Explainability (SHAP) — in progress
+✅ Phase 3 — Explainability (SHAP) — complete
 ⬜ Phase 4 — API + tests
 ⬜ Phase 5 — Frontend + deploy
 ⬜ Phase 6 — Real-user testing
@@ -151,6 +177,12 @@ Documented honestly as the project develops, not hidden:
   O*NET elements, not a learned or validated ranking — plausible on manual
   spot-checks, not yet tested against real user judgments (planned for
   Phase 6's user testing).
+- **Explanations can make a wrong prediction interpretable, not correct.**
+  The Chemical Technicians spot-check (Phase 3) overpredicted the real BLS
+  median wage by ~26%; SHAP shows Science and Critical Thinking driving the
+  overprediction, which is useful for understanding *why* the model erred,
+  but doesn't itself fix the error. Documented here rather than smoothed
+  over, in the same spirit as the coverage and calibration gaps above.
 
 ## License
 
